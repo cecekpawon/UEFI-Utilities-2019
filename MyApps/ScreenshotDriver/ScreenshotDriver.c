@@ -22,6 +22,7 @@
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/UefiDriverEntryPoint.h>
 #include <Library/PrintLib.h>
+#include <Library/DevicePathLib.h>
 
 #include <Protocol/LoadedImage.h>
 #include <Protocol/SimpleFileSystem.h>
@@ -33,10 +34,17 @@
 #include <Protocol/DriverDiagnostics2.h>
 #include <Protocol/DriverConfiguration2.h>
 
-#include <IndustryStandard/Bmp.h>
-
 #include "ScreenshotDriver.h"
 
+#ifdef SAVE_AS_PNG
+#include "../ScreenShot/lodepng.h"
+#else
+#include <IndustryStandard/Bmp.h>
+#endif
+
+STATIC EFI_LOADED_IMAGE                 *gModuleSelfLoadedImage     = NULL;
+STATIC EFI_FILE_HANDLE                  gModuleSelfRootDir          = NULL;
+STATIC EFI_DEVICE_PATH_PROTOCOL         *gDevicePath                = NULL;
 
 EFI_GRAPHICS_OUTPUT_BLT_PIXEL EfiGraphicsColors[16] = {
     // B    G    R   reserved
@@ -124,45 +132,49 @@ EFI_DRIVER_CONFIGURATION2_PROTOCOL gScreenshotDriverConfiguration2 = {
 
 
 EFI_STATUS
-ScreenshotDriverConfigurationSetOptions( EFI_DRIVER_CONFIGURATION2_PROTOCOL       *This,
-                                         EFI_HANDLE                               ControllerHandle,
-                                         EFI_HANDLE                               ChildHandle,
-                                         CHAR8                                    *Language,
-                                         EFI_DRIVER_CONFIGURATION_ACTION_REQUIRED *ActionRequired )
+EFIAPI
+ScreenshotDriverConfigurationSetOptions( IN  EFI_DRIVER_CONFIGURATION2_PROTOCOL       *This,
+                                         IN  EFI_HANDLE                               ControllerHandle,
+                                         IN  EFI_HANDLE                               ChildHandle,
+                                         IN  CHAR8                                    *Language,
+                                         OUT EFI_DRIVER_CONFIGURATION_ACTION_REQUIRED *ActionRequired )
 {
     return EFI_UNSUPPORTED;
 }
 
 
 EFI_STATUS
-ScreenshotDriverConfigurationOptionsValid( EFI_DRIVER_CONFIGURATION2_PROTOCOL *This,
-                                           EFI_HANDLE                         ControllerHandle,
-                                           EFI_HANDLE                         ChildHandle )
+EFIAPI
+ScreenshotDriverConfigurationOptionsValid( IN EFI_DRIVER_CONFIGURATION2_PROTOCOL *This,
+                                           IN EFI_HANDLE                         ControllerHandle,
+                                           IN EFI_HANDLE                         ChildHandle )
 {
     return EFI_UNSUPPORTED;
 }
 
 
 EFI_STATUS
-ScreenshotDriverConfigurationForceDefaults( EFI_DRIVER_CONFIGURATION2_PROTOCOL       *This,
-                                            EFI_HANDLE                               ControllerHandle,
-                                            EFI_HANDLE                               ChildHandle,
-                                            UINT32                                   DefaultType,
-                                            EFI_DRIVER_CONFIGURATION_ACTION_REQUIRED *ActionRequired )
+EFIAPI
+ScreenshotDriverConfigurationForceDefaults( IN  EFI_DRIVER_CONFIGURATION2_PROTOCOL       *This,
+                                            IN  EFI_HANDLE                               ControllerHandle,
+                                            IN  EFI_HANDLE                               ChildHandle,
+                                            IN  UINT32                                   DefaultType,
+                                            OUT EFI_DRIVER_CONFIGURATION_ACTION_REQUIRED *ActionRequired )
 {
     return EFI_UNSUPPORTED;
 }
 
 
 EFI_STATUS
-ScreenshotDriverRunDiagnostics( EFI_DRIVER_DIAGNOSTICS2_PROTOCOL *This,
-                                EFI_HANDLE                       ControllerHandle,
-                                EFI_HANDLE                       ChildHandle, 
-                                EFI_DRIVER_DIAGNOSTIC_TYPE       DiagnosticType, 
-                                CHAR8                            *Language,
-                                EFI_GUID                         **ErrorType, 
-                                UINTN                            *BufferSize,
-                                CHAR16                           **Buffer )
+EFIAPI
+ScreenshotDriverRunDiagnostics( IN  EFI_DRIVER_DIAGNOSTICS2_PROTOCOL *This,
+                                IN  EFI_HANDLE                       ControllerHandle,
+                                IN  EFI_HANDLE                       ChildHandle, 
+                                IN  EFI_DRIVER_DIAGNOSTIC_TYPE       DiagnosticType, 
+                                IN  CHAR8                            *Language,
+                                OUT EFI_GUID                         **ErrorType, 
+                                OUT UINTN                            *BufferSize,
+                                OUT CHAR16                           **Buffer )
 {
     return EFI_UNSUPPORTED;
 }
@@ -172,9 +184,10 @@ ScreenshotDriverRunDiagnostics( EFI_DRIVER_DIAGNOSTICS2_PROTOCOL *This,
 //  Retrieve user readable name of the driver
 //
 EFI_STATUS
-ScreenshotDriverComponentNameGetDriverName( EFI_COMPONENT_NAME2_PROTOCOL *This,
-                                            CHAR8                        *Language,
-                                            CHAR16                       **DriverName )
+EFIAPI
+ScreenshotDriverComponentNameGetDriverName( IN  EFI_COMPONENT_NAME2_PROTOCOL *This,
+                                            IN  CHAR8                        *Language,
+                                            OUT CHAR16                       **DriverName )
 {
     return LookupUnicodeString2( Language,
                                  This->SupportedLanguages,
@@ -188,11 +201,12 @@ ScreenshotDriverComponentNameGetDriverName( EFI_COMPONENT_NAME2_PROTOCOL *This,
 //  Retrieve user readable name of controller being managed by a driver
 //
 EFI_STATUS
-ScreenshotDriverComponentNameGetControllerName( EFI_COMPONENT_NAME2_PROTOCOL *This,
-                                                EFI_HANDLE                   ControllerHandle,
-                                                EFI_HANDLE                   ChildHandle,
-                                                CHAR8                        *Language,
-                                                CHAR16                       **ControllerName )
+EFIAPI
+ScreenshotDriverComponentNameGetControllerName( IN  EFI_COMPONENT_NAME2_PROTOCOL *This,
+                                                IN  EFI_HANDLE                   ControllerHandle,
+                                                IN  EFI_HANDLE                   ChildHandle,
+                                                IN  CHAR8                        *Language,
+                                                OUT CHAR16                       **ControllerName )
 {
     return EFI_UNSUPPORTED;
 }
@@ -202,9 +216,10 @@ ScreenshotDriverComponentNameGetControllerName( EFI_COMPONENT_NAME2_PROTOCOL *Th
 //  Start this driver on Controller
 //
 EFI_STATUS
-ScreenshotDriverBindingStart( EFI_DRIVER_BINDING_PROTOCOL *This,
-                              EFI_HANDLE                  Controller,
-                              EFI_DEVICE_PATH_PROTOCOL    *RemainingDevicePath )
+EFIAPI
+ScreenshotDriverBindingStart( IN EFI_DRIVER_BINDING_PROTOCOL *This,
+                              IN EFI_HANDLE                  Controller,
+                              IN EFI_DEVICE_PATH_PROTOCOL    *RemainingDevicePath )
 {
     return EFI_UNSUPPORTED;
 }
@@ -214,10 +229,11 @@ ScreenshotDriverBindingStart( EFI_DRIVER_BINDING_PROTOCOL *This,
 //  Stop this driver on ControllerHandle.
 //
 EFI_STATUS
-ScreenshotDriverBindingStop( EFI_DRIVER_BINDING_PROTOCOL *This,
-                             EFI_HANDLE                  Controller,
-                             UINTN                       NumberOfChildren,
-                             EFI_HANDLE                  *ChildHandleBuffer )
+EFIAPI
+ScreenshotDriverBindingStop( IN EFI_DRIVER_BINDING_PROTOCOL *This,
+                             IN EFI_HANDLE                  Controller,
+                             IN UINTN                       NumberOfChildren,
+                             IN EFI_HANDLE                  *ChildHandleBuffer )
 {
     return EFI_UNSUPPORTED;
 }
@@ -227,9 +243,10 @@ ScreenshotDriverBindingStop( EFI_DRIVER_BINDING_PROTOCOL *This,
 //  See if this driver supports ControllerHandle.
 //
 EFI_STATUS
-ScreenshotDriverBindingSupported( EFI_DRIVER_BINDING_PROTOCOL *This,
-                                  EFI_HANDLE                  Controller,
-                                  EFI_DEVICE_PATH_PROTOCOL    *RemainingDevicePath )
+EFIAPI
+ScreenshotDriverBindingSupported( IN EFI_DRIVER_BINDING_PROTOCOL *This,
+                                  IN EFI_HANDLE                  Controller,
+                                  IN EFI_DEVICE_PATH_PROTOCOL    *RemainingDevicePath )
 {
     return EFI_UNSUPPORTED;
 }
@@ -325,48 +342,73 @@ SaveImage( CHAR16 *FileName,
            UINT8  *FileData,
            UINTN  FileDataLength )
 {
-    SHELL_FILE_HANDLE FileHandle = NULL;
-    EFI_STATUS        Status = EFI_SUCCESS;
-    CONST CHAR16      *CurDir = NULL;
-    CONST CHAR16      *PathName = NULL;
-    CHAR16            *FullPath = NULL;
-    UINTN             Length = 0;
-    
-    CurDir = gEfiShellProtocol->GetCurDir(NULL);
-    if (CurDir == NULL) {
-        DEBUG((DEBUG_ERROR, "Cannot retrieve current directory\n"));
-	return EFI_NOT_FOUND;
-    }
-    PathName = CurDir;
-    StrnCatGrow(&FullPath, &Length, PathName, 0);
-    StrnCatGrow(&FullPath, &Length, L"\\", 0);
-    StrnCatGrow(&FullPath, &Length, FileName, 0);
+    EFI_STATUS          Status;
+    EFI_FILE_HANDLE     FileHandle;
+    UINTN               BufferSize;
 
-    DEBUG((DEBUG_INFO, "FullPath: [%s]\n", FullPath));
+    Status = gModuleSelfRootDir->Open (
+                        gModuleSelfRootDir, &FileHandle, FileName,
+                        EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0
+                        );
 
-    Status = gEfiShellProtocol->OpenFileByName( FullPath,
-                                                &FileHandle,
-                                                EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE);
-    if (EFI_ERROR(Status)) {
-        DEBUG((DEBUG_ERROR, "OpenFileByName [%s] [%d]\n", FullPath, Status));
-        return Status;
-    } 
-
-    // BufferSize = FileDataLength;
-    Status = gEfiShellProtocol->WriteFile( FileHandle, 
-                                           &FileDataLength, 
-                                           FileData );
-    gEfiShellProtocol->CloseFile( FileHandle );
-
-    if (EFI_ERROR(Status)) {
-        DEBUG((DEBUG_ERROR, "Unable to save image to file: %x\n", Status));
-    } else {
-        DEBUG((DEBUG_INFO, "Successfully saved image to %s\n", FullPath));
+    if (!EFI_ERROR (Status)) {
+        BufferSize = FileDataLength;
+        Status = FileHandle->Write (FileHandle, &BufferSize, FileData);
+        FileHandle->Close (FileHandle);
     }
 
     return Status;
 }
 
+#ifdef SAVE_AS_PNG
+
+EFI_STATUS
+PreparePNGFile( EFI_GRAPHICS_OUTPUT_BLT_PIXEL *BltBuffer,
+                UINT32 Width,
+                UINT32 Height )
+{
+    UINTN           ImageSize;
+    UINTN           i;
+    UINT8           *PngFile;
+    UINTN           PngFileSize;
+    EFI_STATUS      Status;
+    EFI_TIME          Time;
+    CHAR16            FileName[40]; 
+
+    Status = EFI_SUCCESS;
+
+    ImageSize = (Width * Height);
+
+    // Convert BGR to RGBA with Alpha set to 0xFF
+    for (i = 0; i < ImageSize; i++) {
+        UINT8 Temp;
+
+        Temp = BltBuffer[i].Blue;
+
+        BltBuffer[i].Blue = BltBuffer[i].Red;
+        BltBuffer[i].Red = Temp;
+        BltBuffer[i].Reserved = 0xFF;
+    }
+
+    // Encode raw RGB image to PNG format
+    PngFile = NULL;
+    i = lodepng_encode32(&PngFile, &PngFileSize, (CONST UINT8*)BltBuffer, Width, Height);
+    if (i == 0) {
+        Status = gRT->GetTime(&Time, NULL);
+        if (!EFI_ERROR(Status)) {
+            UnicodeSPrint( FileName, 62, L"screenshot-%04d%02d%02d-%02d%02d%02d.png",
+                           Time.Year, Time.Month, Time.Day, Time.Hour, Time.Minute, Time.Second );
+        } else {
+            UnicodeSPrint( FileName, 30, L"screenshot.png" );
+        }
+
+        SaveImage( FileName, PngFile, PngFileSize );
+    }
+
+    return Status;
+}
+
+#else
 
 EFI_STATUS
 PrepareBMPFile( EFI_GRAPHICS_OUTPUT_BLT_PIXEL *BltBuffer,
@@ -446,6 +488,8 @@ PrepareBMPFile( EFI_GRAPHICS_OUTPUT_BLT_PIXEL *BltBuffer,
     return Status;
 }
 
+#endif
+
 
 EFI_STATUS
 SnapShot( EFI_GRAPHICS_OUTPUT_PROTOCOL *Gop, 
@@ -474,12 +518,15 @@ SnapShot( EFI_GRAPHICS_OUTPUT_PROTOCOL *Gop,
         FreePool( BltBuffer );
         return Status;
     }
-            
-    PrepareBMPFile( BltBuffer, Width, Height );
+
+    #ifdef SAVE_AS_PNG
+    PreparePNGFile( BltBuffer, (UINT32)Width, (UINT32)Height );
+    #else
+    PrepareBMPFile( BltBuffer, (UINT32)Width, (UINT32)Height );
+    #endif
 
     return Status;
 }
-
 
 EFI_STATUS
 EFIAPI
@@ -540,13 +587,122 @@ TakeScreenShot( EFI_KEY_DATA *KeyData )
     return Status;
 }
 
+/*
+    https://github.com/cecekpawon/UEFTW
+    UEFTW Start -->
+*/
+
+STATIC
+EFI_FILE_HANDLE
+InternalOpenRoot (
+  IN  EFI_HANDLE   DeviceHandle
+  )
+{
+    EFI_STATUS                          Status;
+    EFI_SIMPLE_FILE_SYSTEM_PROTOCOL     *Volume;
+    EFI_FILE_HANDLE                     File;
+
+    File = NULL;
+
+    Volume  = NULL;
+    Status  = gBS->HandleProtocol ( DeviceHandle,
+                        &gEfiSimpleFileSystemProtocolGuid,
+                        (VOID **)&Volume );
+
+    if (!EFI_ERROR (Status)) {
+        Status = Volume->OpenVolume (Volume, &File);
+    }
+
+    return File;
+}
+
+STATIC
+EFI_STATUS
+InternalScanVolumes ( VOID )
+{
+    EFI_STATUS    Status;
+    EFI_HANDLE    *Handles;
+    UINTN         HandleCount;
+    UINTN         HandleIndex;
+
+    Handles       = NULL;
+    HandleCount   = 0;
+    Status        = gBS->LocateHandleBuffer (
+                         ByProtocol,
+                         &gEfiBlockIoProtocolGuid,
+                         NULL,
+                         &HandleCount,
+                         &Handles
+                         );
+
+    if (!EFI_ERROR (Status)) {
+
+        for (HandleIndex = 0; HandleIndex < HandleCount; HandleIndex++) {
+
+            EFI_HANDLE    DeviceHandle;
+            VOID          *Instance;
+
+            DeviceHandle = Handles[HandleIndex];
+
+            Instance  = NULL;
+            Status    = gBS->HandleProtocol ( DeviceHandle,
+                               &gEfiPartTypeSystemPartGuid,
+                               &Instance );
+
+            if (!EFI_ERROR (Status)) {
+                gDevicePath = DevicePathFromHandle (DeviceHandle);
+                gModuleSelfRootDir = InternalOpenRoot (DeviceHandle);
+
+                if (gModuleSelfRootDir != NULL) {
+                    break;
+                }
+            }
+        }
+
+        FreePool (Handles);
+    }
+
+    return Status;
+}
+
+EFI_STATUS
+GetWritablePath ( IN EFI_HANDLE ImageHandle )
+{
+    EFI_STATUS  Status;
+
+    Status = gBS->HandleProtocol ( ImageHandle,
+                        &gEfiLoadedImageProtocolGuid,
+                        (VOID **)&gModuleSelfLoadedImage );
+
+    if (!EFI_ERROR (Status)) {
+        gDevicePath = DevicePathFromHandle (gModuleSelfLoadedImage->DeviceHandle);
+        gModuleSelfRootDir = InternalOpenRoot (gModuleSelfLoadedImage->DeviceHandle);
+    }
+
+    if (gModuleSelfRootDir == NULL) {
+        DEBUG((DEBUG_ERROR, "Get self-path failed\n"));
+
+        Status = InternalScanVolumes ();
+
+        if (EFI_ERROR(Status)) {
+            DEBUG((DEBUG_ERROR, "InternalScanVolumes %r\n", Status));
+        }
+    }
+
+    return Status;
+}
+
+/*
+    UEFTW End <--
+*/
+
 
 EFI_STATUS
 EFIAPI
 ScreenshotDriverEntryPoint( EFI_HANDLE ImageHandle,
                             EFI_SYSTEM_TABLE *SystemTable )
 {
-    EFI_GUID gEfiSimpleTextInputExProtocolGuid = EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL_GUID;
+    //EFI_GUID gEfiSimpleTextInputExProtocolGuid = EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL_GUID;
     EFI_STATUS                        Status;
     EFI_KEY_DATA                      SimpleTextInExKeyStroke;
     EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *SimpleTextInEx;
@@ -566,6 +722,13 @@ ScreenshotDriverEntryPoint( EFI_HANDLE ImageHandle,
     if (EFI_ERROR(Status)) {
         DEBUG((DEBUG_ERROR, "EfiLibInstallDriverBindingComponentName2 [%d]\n", Status));
         return Status;
+    }
+
+    Status = GetWritablePath (ImageHandle);
+
+    if (EFI_ERROR (Status) || (gModuleSelfRootDir == NULL)) {
+        DEBUG((DEBUG_ERROR, "Find writable volume failed\n"));
+        return EFI_UNSUPPORTED;
     }
 
     // set key combination to be LEFTCTRL+LEFTALT+F12
@@ -600,7 +763,7 @@ EFI_STATUS
 EFIAPI
 ScreenshotDriverUnload( EFI_HANDLE ImageHandle )
 {
-    EFI_GUID gEfiSimpleTextInputExProtocolGuid = EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL_GUID;
+    //EFI_GUID gEfiSimpleTextInputExProtocolGuid = EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL_GUID;
     EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *SimpleTextInEx;
     EFI_STATUS Status = EFI_SUCCESS;
     UINTN      Index;

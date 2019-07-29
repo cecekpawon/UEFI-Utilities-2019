@@ -26,10 +26,19 @@
 [Sources]
   ScreenshotDriver.c
   ScreenshotDriver.h
+  ../ScreenShot/lodepng.c
 
 [Packages]
   MdePkg/MdePkg.dec
   ShellPkg/ShellPkg.dec
+
+[Guids]
+  gEfiPartTypeSystemPartGuid
+
+[Protocols]
+  gEfiSimpleTextInputExProtocolGuid
+  gEfiLoadedImageProtocolGuid
+  gEfiBlockIoProtocolGuid
 
 [Depex]
   gEfiGraphicsOutputProtocolGuid AND

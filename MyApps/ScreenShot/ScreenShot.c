@@ -28,7 +28,13 @@
 #include <Protocol/GraphicsOutput.h>
 #include <Protocol/Shell.h>
 
+#define SAVE_AS_PNG (1)
+
+#ifdef SAVE_AS_PNG
+#include "lodepng.h"
+#else
 #include <IndustryStandard/Bmp.h>
+#endif
 
 EFI_GRAPHICS_OUTPUT_BLT_PIXEL EfiGraphicsColors[16] = {
     // B    G    R   reserved
@@ -211,6 +217,56 @@ SaveImage( CHAR16 *FileName,
 }
 
 
+#ifdef SAVE_AS_PNG
+
+EFI_STATUS
+PreparePNGFile( EFI_GRAPHICS_OUTPUT_BLT_PIXEL *BltBuffer,
+                UINT32 Width,
+                UINT32 Height )
+{
+    UINTN           ImageSize;
+    UINTN           i;
+    UINT8           *PngFile;
+    UINTN           PngFileSize;
+    EFI_STATUS      Status;
+    EFI_TIME          Time;
+    CHAR16            FileName[40]; 
+
+    Status = EFI_SUCCESS;
+
+    ImageSize = (Width * Height);
+
+    // Convert BGR to RGBA with Alpha set to 0xFF
+    for (i = 0; i < ImageSize; i++) {
+        UINT8 Temp;
+
+        Temp = BltBuffer[i].Blue;
+
+        BltBuffer[i].Blue = BltBuffer[i].Red;
+        BltBuffer[i].Red = Temp;
+        BltBuffer[i].Reserved = 0xFF;
+    }
+
+    // Encode raw RGB image to PNG format
+    PngFile = NULL;
+    i = lodepng_encode32(&PngFile, &PngFileSize, (CONST UINT8*)BltBuffer, Width, Height);
+    if (i == 0) {
+        Status = gRT->GetTime(&Time, NULL);
+        if (!EFI_ERROR(Status)) {
+            UnicodeSPrint( FileName, 62, L"screenshot-%04d%02d%02d-%02d%02d%02d.png",
+                           Time.Year, Time.Month, Time.Day, Time.Hour, Time.Minute, Time.Second );
+        } else {
+            UnicodeSPrint( FileName, 30, L"screenshot.png" );
+        }
+
+        SaveImage( FileName, PngFile, PngFileSize );
+    }
+
+    return Status;
+}
+
+#else
+
 EFI_STATUS
 PrepareBMPFile( EFI_GRAPHICS_OUTPUT_BLT_PIXEL *BltBuffer,
                 UINT32 Width, 
@@ -289,6 +345,8 @@ PrepareBMPFile( EFI_GRAPHICS_OUTPUT_BLT_PIXEL *BltBuffer,
     return Status;
 }
 
+#endif
+
 
 EFI_STATUS
 SnapShot( EFI_GRAPHICS_OUTPUT_PROTOCOL *Gop, 
@@ -318,7 +376,11 @@ SnapShot( EFI_GRAPHICS_OUTPUT_PROTOCOL *Gop,
         return Status;
     }
             
-    PrepareBMPFile( BltBuffer, Width, Height );
+    #ifdef SAVE_AS_PNG
+    PreparePNGFile( BltBuffer, (UINT32)Width, (UINT32)Height );
+    #else
+    PrepareBMPFile( BltBuffer, (UINT32)Width, (UINT32)Height );
+    #endif
 
     return Status;
 }
@@ -349,6 +411,11 @@ ShellAppMain( UINTN Argc,
     BOOLEAN                      DisplayInfo = FALSE;
     UINTN                        HandleCount = 0;
     UINTN                        StartX = 0, StartY = 0, Width = 0, Height = 0; 
+
+    if (gEfiShellProtocol == NULL) {
+        Print(L"Cant locate ShellProtocol\n");
+        return EFI_SUCCESS;
+    }
 
     if (Argc == 2) {
         if (!StrCmp(Argv[1], L"--version") ||
@@ -429,6 +496,10 @@ ShellAppMain( UINTN Argc,
         Status = ShowStatus( Gop, Red, StartX, StartY, Width, Height ); 
     } else {
         Status = ShowStatus( Gop, Lime, StartX, StartY, Width, Height ); 
+    }
+
+    if (TRUE) {
+        Status = EFI_SUCCESS;
     }
 
     return Status;

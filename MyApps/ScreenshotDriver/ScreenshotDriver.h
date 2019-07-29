@@ -13,6 +13,8 @@
 #ifndef _SCREENSHOTDRIVER_H_
 #define _SCREENSHOTDRIVER_H_
 
+#define SAVE_AS_PNG (1)
+
 #define SCREENSHOTDRIVER_DEV_SIGNATURE SIGNATURE_32 ('s', 's', 'd', 'r')
 
 typedef struct {
