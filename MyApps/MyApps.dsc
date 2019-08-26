@@ -88,3 +88,7 @@
   MyApps/ShowFACS/ShowFACS.inf
   MyApps/ShowSLIC/ShowSLIC.inf
   MyApps/ShowESRT/ShowESRT.inf
+
+[BuildOptions]
+  MSFT:*_*_*_CC_FLAGS   = /W2
+  GCC:*_*_*_CC_FLAGS    = -std=c99

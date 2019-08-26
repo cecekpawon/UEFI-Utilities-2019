@@ -653,7 +653,7 @@ ShellAppMain( UINTN Argc,
     EFI_GUID   gAcpi20TableGuid = EFI_ACPI_20_TABLE_GUID;
     EFI_GUID   gAcpi10TableGuid = ACPI_10_TABLE_GUID;
     CHAR16     GuidStr[100];
-    MODE       Mode;
+    MODE       Mode = 0;
 
     if (Argc == 2) {
         if (!StrCmp(Argv[1], L"--verbose") ||
@@ -681,7 +681,7 @@ ShellAppMain( UINTN Argc,
             return Status;
         }
     }
-    if (Argc > 2) {
+    if ((Argc > 2) || (Mode == 0)) {
         Usage(TRUE);
         return Status;
     }

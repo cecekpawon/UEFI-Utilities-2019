@@ -112,6 +112,8 @@ typedef struct {
 #define UTILITY_VERSION L"20190408"
 #undef DEBUG
 
+int _fltused = 1;
+
 
 //
 // Based on code found at http://code.google.com/p/my-itoa/
@@ -328,6 +330,9 @@ PrintEdid( EDID_DATA_BLOCK *EdidDataBlock )
     Print(L"      Manufacture Week: %02d\n", EdidDataBlock->WeekOfManufacture);
     Print(L"      Manufacture Year: %d\n", EdidDataBlock->YearOfManufacture + 1990);
 
+    // FIXME: CHECK_BIT 7 == Digital
+    // https://en.wikipedia.org/wiki/Extended_Display_Identification_Data
+    // https://github.com/freebsd/freebsd/blob/master/sys/dev/videomode/edid.c
     tmp = (UINT8) EdidDataBlock->VideoInputDefinition;
     Print(L"           Video Input: ");
     if (CHECK_BIT(tmp, 7)) {
@@ -467,6 +472,8 @@ ShellAppMain( UINTN Argc,
             }
         }
     }
+
+    FreePool(HandleBuffer);
 
     if (!Found) {
         Print(L"Cannot locate an EDID.\n");

@@ -17,7 +17,14 @@
  *
  */
 
-#include <errno.h>
+//#include <errno.h>
+
+#ifndef EMSGSIZE
+    #define EMSGSIZE    (40)    /* Message too long */
+#endif
+#ifndef EBADMSG
+    #define EBADMSG     (88)    /* Bad message */
+#endif
 
 #include <Uefi.h>
 #include <Library/UefiLib.h>
