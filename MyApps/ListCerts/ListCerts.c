@@ -445,6 +445,49 @@ PrintCertificates( UINT8 *data,
 
 
 EFI_STATUS
+dump_file( UINT8 *Data, 
+           UINTN Len, 
+           CHAR16 *FileName )
+{
+    EFI_STATUS          Status;
+    SHELL_FILE_HANDLE   FileHandle;
+
+    if (!Data || !Len || !FileName)
+        return EFI_INVALID_PARAMETER;
+
+    FileHandle = NULL;
+    Status = ShellOpenFileByName( FileName, &FileHandle,
+                                (EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE),
+                                0 );
+    if (!EFI_ERROR( Status )) {
+        if (FileHandle == NULL) {
+          return EFI_LOAD_ERROR;
+        }
+        Status = ShellDeleteFile( &FileHandle );
+        if (EFI_ERROR( Status )) {
+          return Status;
+        }
+    }
+
+    FileHandle = NULL;
+    Status = ShellOpenFileByName( FileName, &FileHandle,
+                                    (EFI_FILE_MODE_CREATE | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_READ),
+                                    0 );
+    if (!EFI_ERROR( Status )) {
+        if (FileHandle == NULL) {
+          return EFI_LOAD_ERROR;
+        }
+        Status = ShellWriteFile( FileHandle, &Len, Data );
+        if (EFI_ERROR(ShellCloseFile( &FileHandle ))) {
+            Status = EFI_LOAD_ERROR;
+        }
+    }
+
+    return Status;
+}
+
+
+EFI_STATUS
 get_variable( CHAR16 *Var, 
               UINT8 **Data, 
               UINTN *Len,
@@ -473,18 +516,87 @@ get_variable( CHAR16 *Var,
 
 
 EFI_STATUS
-OutputVariable( CHAR16 *Var, 
-                EFI_GUID Owner ) 
+get_file( CHAR16 *FileName, 
+              UINT8 **Data, 
+              UINTN *Len )
 {
-    EFI_STATUS Status = EFI_SUCCESS;
-    UINT8 *Data;
-    UINTN Len;
+    EFI_STATUS          Status;
+    SHELL_FILE_HANDLE   FileHandle = NULL;
+    EFI_FILE_INFO       *Info;
+    UINTN               FileSize = 0;
+    VOID                *Buffer = NULL;
 
-    Status = get_variable( Var, &Data, &Len, Owner );
+    *Data = NULL;
+    *Len = 0;
+
+    Status = ShellOpenFileByName (FileName, &FileHandle, EFI_FILE_MODE_READ, 0);
+
+    if (!EFI_ERROR (Status)) {
+        if (FileHandle == NULL) {
+          return EFI_LOAD_ERROR;
+        }
+
+        Info = ShellGetFileInfo (FileHandle);
+
+        if (Info == NULL) {
+            return EFI_LOAD_ERROR;
+        }
+
+        if (Info->Attribute & EFI_FILE_DIRECTORY) {
+            FreePool (Info);
+            return EFI_INVALID_PARAMETER;
+        }
+
+        FileSize = (UINTN) Info->FileSize;
+
+        FreePool (Info);
+
+        Buffer = AllocateZeroPool (FileSize);
+        if (Buffer == NULL) {
+            return EFI_OUT_OF_RESOURCES;
+        }
+
+        Status = ShellReadFile (FileHandle, &FileSize, Buffer);
+
+        if (EFI_ERROR (Status)
+            || EFI_ERROR (ShellCloseFile(&FileHandle))
+            || (FileSize == 0)) {
+          SHELL_FREE_NON_NULL (Buffer);
+          Status = EFI_LOAD_ERROR;
+        }
+
+        *Data = Buffer;
+        *Len = FileSize;
+    }
+
+    return Status;
+}
+
+EFI_STATUS
+OutputVariable( CHAR16 *Var, 
+                EFI_GUID Owner, 
+                BOOLEAN readnv, 
+                BOOLEAN readfile, 
+                BOOLEAN dumpfile, 
+                CHAR16 *filename ) 
+{
+    EFI_STATUS Status;
+    UINT8 *Data = NULL;
+    UINTN Len = 0;
+
+    if (readfile) {
+        Status = get_file( filename, &Data, &Len );
+    } else {
+        Status = get_variable( Var, &Data, &Len, Owner );
+    }
     if (Status == EFI_SUCCESS) {
         Print(L"\nVARIABLE: %s  (size: %d)\n", Var, Len);
-        PrintCertificates( Data, Len, Var );
-        FreePool( Data );
+        if (dumpfile) {
+            dump_file( Data, Len, (filename != NULL) ? filename : Var );
+        } else {
+            PrintCertificates( Data, Len, Var );
+        }
+        SHELL_FREE_NON_NULL( Data );
     } else if (Status == EFI_NOT_FOUND) {
 #ifdef DEBUG
         Print(L"Variable %s not found\n", Var);
@@ -499,14 +611,32 @@ OutputVariable( CHAR16 *Var,
 
 
 VOID
-Usage( BOOLEAN ErrorMsg )
+Usage( BOOLEAN ErrorMsg, EFI_STATUS *Status )
 {
+    *Status = EFI_SUCCESS;
+
     if ( ErrorMsg ) {
+        *Status = EFI_INVALID_PARAMETER;
         Print(L"ERROR: Unknown option(s).\n");
     }
 
-    Print(L"Usage: ListCerts [ -pk | -kek | -db | -dbx ]\n");
-    Print(L"       ListCerts [-V | --version]\n");
+    Print(L"Usage:\n");
+    Print(L"    Version:\n");
+    Print(L"       ListCerts [ -V | --version ]\n");
+    Print(L"    Help:\n");
+    Print(L"       ListCerts [ -h | --help ]\n");
+    Print(L"    Read Variable:\n");
+    Print(L"       ListCerts -r\n");
+    Print(L"       ListCerts -r <key>\n");
+    Print(L"    Read File:\n");
+    Print(L"       ListCerts -f <filename>\n");
+    Print(L"    Dump to File:\n");
+    Print(L"       ListCerts -d\n");
+    Print(L"       ListCerts -d <key>\n");
+    Print(L"       ListCerts -d <key> <filename>\n");
+    Print(L"\n");
+    Print(L"*<key>: [ -pk | -kek | -db | -dbx ]\n");
+    Print(L"*<filename>: [ in | out ] filename\n");
 }
 
 
@@ -518,34 +648,102 @@ ShellAppMain( UINTN Argc,
     EFI_STATUS Status = EFI_SUCCESS;
     EFI_GUID   gSIGDB = EFI_IMAGE_SECURITY_DATABASE_GUID;
     EFI_GUID   owners[] = { EFI_GLOBAL_VARIABLE, EFI_GLOBAL_VARIABLE, gSIGDB, gSIGDB };
+    EFI_GUID   owner;
     CHAR16     *variables[] = { L"PK", L"KEK", L"db", L"dbx" };
+    CHAR16     *variable = NULL;
+    CHAR16     *filename = NULL;
+    BOOLEAN    readnv = FALSE;
+    BOOLEAN    readfile = FALSE;
+    BOOLEAN    dumpfile = FALSE;
 
-    if (Argc == 1) {
-        for (UINT8 i = 0; i < ARRAY_SIZE(owners); i++) {
-            Status = OutputVariable(variables[i], owners[i]);
+    /*
+    ListCerts
+
+    ListCerts -h
+    ListCerts -v
+    ListCerts -r
+    ListCerts -d
+
+    ListCerts -r <key>
+    ListCerts -d <key>
+    ListCerts -f <filename>
+
+    ListCerts -d <key> <filename>
+    */
+
+    if (Argc > 1) {
+        if (!StrCmp(Argv[1], L"-r")) {
+            readnv = TRUE;
         }
-    } else if (Argc == 2) {
+        else if (!StrCmp(Argv[1], L"-f")) {
+            readfile = TRUE;
+        }
+        else if (!StrCmp(Argv[1], L"-d")) {
+            dumpfile = TRUE;
+        }
+    }
+
+    if (Argc == 2) {
         if (!StrCmp(Argv[1], L"--help") ||
-            !StrCmp(Argv[1], L"-h")) { 
-            Usage(FALSE);
+            !StrCmp(Argv[1], L"-h")) {
+            Usage(FALSE, &Status);
             return Status;
         } else if (!StrCmp(Argv[1], L"--version") ||
             !StrCmp(Argv[1], L"-V")) {
             Print(L"Version: %s\n", UTILITY_VERSION);
             return Status;
-        } else if (!StrCmp(Argv[1], L"-pk"))  {
-            Status = OutputVariable(variables[0], owners[0]);
-        } else if (!StrCmp(Argv[1], L"-kek"))  {
-            Status = OutputVariable(variables[1], owners[1]);
-        } else if (!StrCmp(Argv[1], L"-db"))  {
-            Status = OutputVariable(variables[2], owners[2]);
-        } else if (!StrCmp(Argv[1], L"-dbx"))  {
-            Status = OutputVariable(variables[3], owners[3]);
-        } else {
-            Usage(TRUE);
+        } else if (!readnv && !dumpfile) {
+            Usage(TRUE, &Status);
+            return Status;
         }
-    } else if (Argc > 2) {
-        Usage(TRUE);
+
+        for (UINT8 i = 0; i < ARRAY_SIZE(owners); i++) {
+            Status = OutputVariable(variables[i], owners[i], readnv, readfile, dumpfile, filename);
+            if (EFI_ERROR (Status)) {
+                return Status;
+            }
+        }
+    } else if ((Argc == 3) || (Argc == 4)) {
+        if (!readnv && !readfile && !dumpfile) {
+            Usage(TRUE, &Status);
+            return Status;
+        }
+
+        if (!readfile) {
+            if (!StrCmp(Argv[2], L"-pk"))  {
+                variable = variables[0];
+                owner = owners[0];
+            } else if (!StrCmp(Argv[2], L"-kek"))  {
+                variable = variables[1];
+                owner = owners[1];
+            } else if (!StrCmp(Argv[2], L"-db"))  {
+                variable = variables[2];
+                owner = owners[2];
+            } else if (!StrCmp(Argv[2], L"-dbx"))  {
+                variable = variables[3];
+                owner = owners[3];
+            } else {
+                Usage(TRUE, &Status);
+                return Status;
+            }
+        }
+
+        if (Argc == 3) {
+            //
+            if (readfile) {
+                filename = Argv[2];
+            }
+        } else {
+            if (!dumpfile) {
+                Usage(TRUE, &Status);
+                return Status;
+            }
+            filename = Argv[3];
+        }
+
+        Status = OutputVariable(variable, owner, readnv, readfile, dumpfile, filename);
+    } else {
+        Usage(TRUE, &Status);
     }
 
     return Status;
